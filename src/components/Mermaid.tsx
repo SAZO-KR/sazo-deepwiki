@@ -2,6 +2,64 @@ import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 // We'll use dynamic import for svg-pan-zoom
 
+// Function to preprocess Mermaid chart syntax to handle special characters
+/**
+ * Preprocesses Mermaid chart syntax to handle problematic characters and patterns
+ * that can cause parsing errors. Applies quotes to node labels containing:
+ * - Parentheses in square brackets
+ * - Forward slashes
+ * - Korean characters
+ * - Nested brackets
+ * - Special characters in parentheses nodes
+ * - Parentheses in edge labels
+ */
+const preprocessMermaidChart = (chart: string): string => {
+  let processedChart = chart;
+  
+  // Helper function to safely quote labels if not already quoted
+  const quoteLabel = (label: string): string => {
+    return label.startsWith('"') && label.endsWith('"') ? label : `"${label}"`;
+  };
+
+  // Step 1: Handle square bracket nodes with parentheses
+  processedChart = processedChart.replace(
+    /(\w+)\s*\[([^[\]]*\([^)]*\)[^[\]]*)\]/g,
+    (match, nodeId, label) => `${nodeId}[${quoteLabel(label)}]`
+  );
+
+  // Step 2: Handle square bracket nodes with slashes
+  processedChart = processedChart.replace(
+    /(\w+)\s*\[([^[\]"]*\/[^[\]"]*)\]/g,
+    (match, nodeId, label) => `${nodeId}[${quoteLabel(label)}]`
+  );
+
+  // Step 3: Handle square bracket nodes with Korean characters
+  processedChart = processedChart.replace(
+    /(\w+)\s*\[([^[\]"]*[가-힣][^[\]"]*)\]/g,
+    (match, nodeId, label) => `${nodeId}[${quoteLabel(label)}]`
+  );
+
+  // Step 4: Handle square bracket nodes with nested brackets
+  processedChart = processedChart.replace(
+    /(\w+)\s*\[([^[\]"]*\[[^\]]*\][^[\]"]*)\]/g,
+    (match, nodeId, label) => `${nodeId}[${quoteLabel(label)}]`
+  );
+
+  // Step 5: Handle edge labels with parentheses
+  processedChart = processedChart.replace(
+    /\|([^|"]*\([^)]*\)[^|"]*)\|/g,
+    (match, label) => `|${quoteLabel(label)}|`
+  );
+
+  // Step 6: Handle parentheses nodes with special characters
+  processedChart = processedChart.replace(
+    /\b([A-Z])\s*\(([^"]*[{}:,.;][^"]*)\)/g,
+    (match, nodeId, label) => `${nodeId}(${quoteLabel(label)})`
+  );
+
+  return processedChart;
+};
+
 // Initialize mermaid with defaults - Japanese aesthetic
 mermaid.initialize({
   startOnLoad: true,
@@ -365,8 +423,11 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
         setError(null);
         setSvg('');
 
-        // Render the chart directly without preprocessing
-        const { svg: renderedSvg } = await mermaid.render(idRef.current, chart);
+        // Preprocess chart to handle special characters in node labels
+        const preprocessedChart = preprocessMermaidChart(chart);
+
+        // Render the chart with preprocessing
+        const { svg: renderedSvg } = await mermaid.render(idRef.current, preprocessedChart);
 
         if (!isMounted) return;
 
