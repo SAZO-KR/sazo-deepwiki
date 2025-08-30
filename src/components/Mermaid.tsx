@@ -2,64 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import mermaid from 'mermaid';
 // We'll use dynamic import for svg-pan-zoom
 
-// Function to preprocess Mermaid chart syntax to handle special characters
-/**
- * Preprocesses Mermaid chart syntax to handle problematic characters and patterns
- * that can cause parsing errors. Applies quotes to node labels containing:
- * - Parentheses in square brackets
- * - Forward slashes
- * - Korean characters
- * - Nested brackets
- * - Special characters in parentheses nodes
- * - Parentheses in edge labels
- */
-const preprocessMermaidChart = (chart: string): string => {
-  let processedChart = chart;
-  
-  // Helper function to safely quote labels if not already quoted
-  const quoteLabel = (label: string): string => {
-    return label.startsWith('"') && label.endsWith('"') ? label : `"${label}"`;
-  };
-
-  // Step 1: Handle square bracket nodes with parentheses
-  processedChart = processedChart.replace(
-    /(\w+)\s*\[([^[\]]*\([^)]*\)[^[\]]*)\]/g,
-    (match, nodeId, label) => `${nodeId}[${quoteLabel(label)}]`
-  );
-
-  // Step 2: Handle square bracket nodes with slashes
-  processedChart = processedChart.replace(
-    /(\w+)\s*\[([^[\]"]*\/[^[\]"]*)\]/g,
-    (match, nodeId, label) => `${nodeId}[${quoteLabel(label)}]`
-  );
-
-  // Step 3: Handle square bracket nodes with Korean characters
-  processedChart = processedChart.replace(
-    /(\w+)\s*\[([^[\]"]*[가-힣][^[\]"]*)\]/g,
-    (match, nodeId, label) => `${nodeId}[${quoteLabel(label)}]`
-  );
-
-  // Step 4: Handle square bracket nodes with nested brackets
-  processedChart = processedChart.replace(
-    /(\w+)\s*\[([^[\]"]*\[[^\]]*\][^[\]"]*)\]/g,
-    (match, nodeId, label) => `${nodeId}[${quoteLabel(label)}]`
-  );
-
-  // Step 5: Handle edge labels with parentheses
-  processedChart = processedChart.replace(
-    /\|([^|"]*\([^)]*\)[^|"]*)\|/g,
-    (match, label) => `|${quoteLabel(label)}|`
-  );
-
-  // Step 6: Handle parentheses nodes with special characters
-  processedChart = processedChart.replace(
-    /\b([A-Z])\s*\(([^"]*[{}:,.;][^"]*)\)/g,
-    (match, nodeId, label) => `${nodeId}(${quoteLabel(label)})`
-  );
-
-  return processedChart;
-};
-
 // Initialize mermaid with defaults - Japanese aesthetic
 mermaid.initialize({
   startOnLoad: true,
@@ -361,6 +303,290 @@ const FullScreenModal: React.FC<{
   );
 };
 
+// MermaidConverter class for handling Mermaid v11.3.0 @{} syntax conversion
+export class MermaidConverter {
+  private nodePatterns: Array<{ regex: RegExp | null; shape: string }>;
+
+  constructor() {
+    // Define patterns in order of specificity (most specific first)
+    this.nodePatterns = [
+      // Triple parenthesis must come before double
+      { regex: /(\w+)\(\(\((.+?)\)\)\)/g, shape: 'dbl-circ' },
+      // Double brackets/braces must come before single
+      { regex: /(\w+)\[\[(.+?)\]\]/g, shape: 'subroutine' },
+      { regex: /(\w+)\{\{(.+?)\}\}/g, shape: 'hex' },
+      // Combined shapes
+      { regex: /(\w+)\(\[(.+?)\]\)/g, shape: 'stadium' },
+      { regex: /(\w+)\[\((.+?)\)\]/g, shape: 'cylinder' },
+      { regex: /(\w+)\(\((.+?)\)\)/g, shape: 'circle' },
+      // Parallelogram variations (order matters!)
+      { regex: /(\w+)\[\/(.+?)\/\]/g, shape: 'lean-r' },
+      { regex: /(\w+)\[\\(.+?)\\\]/g, shape: 'lean-l' },
+      { regex: /(\w+)\[\/(.+?)\\\]/g, shape: 'trap-b' },
+      { regex: /(\w+)\[\\(.+?)\/\]/g, shape: 'trap-t' },
+      // Basic shapes - use special handling for rectangles to support nested brackets
+      { regex: null, shape: 'rect' }, // Will be handled specially
+      { regex: /(\w+)\((.+?)\)/g, shape: 'rounded' },
+      { regex: /(\w+)>(.+?)\]/g, shape: 'odd' },
+      { regex: /(\w+)\{(.+?)\}/g, shape: 'diam' }
+    ];
+  }
+
+  private escapeQuotes(text: string): string {
+    return text.replace(/"/g, '\\"');
+  }
+
+  // Helper function to find matching bracket considering nested brackets
+  private findMatchingBracket(text: string, startPos: number): number {
+    let depth = 0;
+    for (let i = startPos; i < text.length; i++) {
+      if (text[i] === '[') depth++;
+      if (text[i] === ']') {
+        depth--;
+        if (depth === 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  // Helper function to find matching parenthesis considering nested structures
+  private findMatchingParenthesis(text: string, startPos: number, openChar: string, closeChar: string): number {
+    let depth = 0;
+    let inBraces = 0;
+    let inBrackets = 0;
+    
+    for (let i = startPos; i < text.length; i++) {
+      // Track nested structures
+      if (text[i] === '{') inBraces++;
+      if (text[i] === '}') inBraces--;
+      if (text[i] === '[') inBrackets++;
+      if (text[i] === ']') inBrackets--;
+      
+      // Only count our target parenthesis when not inside other structures
+      if (text[i] === openChar) {
+        depth++;
+      } else if (text[i] === closeChar) {
+        depth--;
+        if (depth === 0) {
+          return i;
+        }
+      }
+    }
+    return -1;
+  }
+
+  // Process node definitions in a line
+  private processNodeDefinitions(line: string): string {
+    let processedLine = line;
+    
+    // Process all node definitions in the line
+    for (const {regex, shape} of this.nodePatterns) {
+      if (shape === 'rect') {
+        // Special handling for rectangles to support nested brackets
+        let rectMatch;
+        // Look for node IDs followed by [ but make sure it's a node definition
+        // by checking for arrow operators or line start
+        const rectRegex = /(^|\s|-->|->|---|--|==|==>|\.->|\.\.>)(\w+)\[/g;
+        while ((rectMatch = rectRegex.exec(processedLine)) !== null) {
+          const prefix = rectMatch[1];
+          const nodeId = rectMatch[2];
+          const startBracket = rectMatch.index! + prefix.length + nodeId.length;
+          const endBracket = this.findMatchingBracket(processedLine, startBracket);
+          
+          if (endBracket !== -1) {
+            const label = processedLine.substring(startBracket + 1, endBracket);
+            const replacement = `${prefix}${nodeId}@{ shape: rect, label: "${this.escapeQuotes(label.trim())}" }`;
+            processedLine = processedLine.substring(0, rectMatch.index) + 
+                           replacement + 
+                           processedLine.substring(endBracket + 1);
+            // Reset regex after modification
+            rectRegex.lastIndex = rectMatch.index + replacement.length;
+          } else {
+            break;
+          }
+        }
+      } else if (shape === 'rounded' && regex) {
+        // Special handling for rounded parentheses with nested content
+        let roundMatch;
+        const roundRegex = /(\w+)\(/g;
+        while ((roundMatch = roundRegex.exec(processedLine)) !== null) {
+          const nodeId = roundMatch[1];
+          const startParen = roundMatch.index! + nodeId.length;
+          const endParen = this.findMatchingParenthesis(processedLine, startParen, '(', ')');
+          
+          if (endParen !== -1) {
+            const label = processedLine.substring(startParen + 1, endParen);
+            const replacement = `${nodeId}@{ shape: rounded, label: "${this.escapeQuotes(label.trim())}" }`;
+            const before = processedLine.substring(0, roundMatch.index);
+            const after = processedLine.substring(endParen + 1);
+            processedLine = before + replacement + after;
+            // Reset regex after modification
+            roundRegex.lastIndex = before.length + replacement.length;
+          }
+        }
+      } else if (regex) {
+        processedLine = processedLine.replace(regex, (match, nodeId, label) => {
+          return `${nodeId}@{ shape: ${shape}, label: "${this.escapeQuotes(label.trim())}" }`;
+        });
+      }
+    }
+    
+    return processedLine;
+  }
+
+  // Convert old syntax to new @{} syntax
+  toNewSyntax(mermaidCode: string): string {
+    const lines = mermaidCode.split('\n');
+    const result: string[] = [];
+
+    for (const line of lines) {
+      // Skip empty lines and graph declarations
+      if (line.trim() === '' || line.trim().startsWith('graph') || line.trim().startsWith('flowchart')) {
+        result.push(line);
+        continue;
+      }
+
+      let processedLine = line;
+      
+      // First, handle edge labels with pipes
+      processedLine = processedLine.replace(/\|([^|]+)\|/g, (match, label) => {
+        return `|"${this.escapeQuotes(label.trim())}"|`;
+      });
+      
+      // Then process all node definitions (including those on arrow lines)
+      processedLine = this.processNodeDefinitions(processedLine);
+      
+      result.push(processedLine);
+    }
+
+    return result.join('\n');
+  }
+}
+
+// Instantiate the converter
+export const mermaidConverter = new MermaidConverter();
+
+// Helper function to handle escaped characters in Mermaid syntax
+export const handleEscapedCharacters = (chart: string): string => {
+  const lines = chart.split('\n');
+  const result: string[] = [];
+  
+  for (const line of lines) {
+    // Skip empty lines and graph declarations
+    if (line.trim() === '' || line.trim().startsWith('graph') || line.trim().startsWith('flowchart')) {
+      result.push(line);
+      continue;
+    }
+    
+    let processedLine = line;
+    
+    // Handle escaped square brackets: A[\[text\]] -> A["[text]"]
+    processedLine = processedLine.replace(/(\w+)\[\\\[(.+?)\\\]\]/g, (match, nodeId, content) => {
+      return `${nodeId}["[${content}]"]`;
+    });
+    
+    // Handle escaped curly braces: A\{text\} -> A["{text}"]
+    processedLine = processedLine.replace(/(\w+)\\\{(.+?)\\\}/g, (match, nodeId, content) => {
+      return `${nodeId}["{${content}}"]`;
+    });
+    
+    // Handle other escaped brackets in text (not node definitions)
+    processedLine = processedLine.replace(/\\\[/g, '[').replace(/\\\]/g, ']');
+    processedLine = processedLine.replace(/\\\{/g, '{').replace(/\\\}/g, '}');
+    
+    result.push(processedLine);
+  }
+  
+  return result.join('\n');
+};
+
+// Helper function to check bracket balance in labels, considering context
+export const checkLabelBracketBalance = (label: string): boolean => {
+  let openCount = 0;
+  let closeCount = 0;
+  let inSingleQuote = false;
+  let inDoubleQuote = false;
+  let escaped = false;
+  
+  for (let i = 0; i < label.length; i++) {
+    const char = label[i];
+    
+    // Handle escape sequences
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+    
+    // Handle quotes
+    if (char === "'" && !inDoubleQuote) {
+      inSingleQuote = !inSingleQuote;
+      continue;
+    }
+    if (char === '"' && !inSingleQuote) {
+      inDoubleQuote = !inDoubleQuote;
+      continue;
+    }
+    
+    // Only count brackets that are not inside quotes
+    if (!inSingleQuote && !inDoubleQuote) {
+      if (char === '(' || char === '[' || char === '{') {
+        openCount++;
+      } else if (char === ')' || char === ']' || char === '}') {
+        closeCount++;
+      }
+    }
+  }
+  
+  return openCount === closeCount;
+};
+
+// Preprocessing function using the MermaidConverter with fallback
+export const preprocessChart = (chart: string): string => {
+  try {
+    // First handle escaped characters
+    let processedChart = chart;
+    if (chart.includes('\\[') || chart.includes('\\]') || chart.includes('\\{') || chart.includes('\\}')) {
+      processedChart = handleEscapedCharacters(chart);
+    }
+    
+    // Then convert to new @{} syntax for better handling of special characters
+    const convertedChart = mermaidConverter.toNewSyntax(processedChart);
+    
+    // Validate the conversion - check for basic syntax errors
+    if (convertedChart.includes('@{ shape:')) {
+      // Check for unclosed quotes or brackets in labels
+      // Updated regex to handle escaped quotes within labels
+      const labelMatches = convertedChart.match(/label: "((?:[^"\\]|\\.)*)"/g);
+      if (labelMatches) {
+        for (const match of labelMatches) {
+          const label = match.substring(8, match.length - 1); // Extract label content
+          // Skip validation for already escaped labels (containing @{ shape:)
+          if (label.includes('@{ shape:')) {
+            continue;
+          }
+          // Use context-aware bracket balance check
+          if (!checkLabelBracketBalance(label)) {
+            console.warn("⚠️ Unbalanced brackets in label, using escaped version:", label);
+            return processedChart;
+          }
+        }
+      }
+    }
+    
+    return convertedChart;
+  } catch (error) {
+    console.error("❌ Mermaid 변환 실패:", error);
+    return chart;
+  }
+};
+
+// Removed old helper functions - now using MermaidConverter class
+
 const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled = false }) => {
   const [svg, setSvg] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
@@ -423,10 +649,8 @@ const Mermaid: React.FC<MermaidProps> = ({ chart, className = '', zoomingEnabled
         setError(null);
         setSvg('');
 
-        // Preprocess chart to handle special characters in node labels
-        const preprocessedChart = preprocessMermaidChart(chart);
-
-        // Render the chart with preprocessing
+        // Preprocess the chart to handle special characters that cause parsing issues
+        const preprocessedChart = preprocessChart(chart);
         const { svg: renderedSvg } = await mermaid.render(idRef.current, preprocessedChart);
 
         if (!isMounted) return;
