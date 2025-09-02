@@ -74,6 +74,24 @@ describe('MermaidConverter', () => {
       const expected = 'H@{ shape: rect, label: "CMD [\\"yarn\\", \\"start\\"]" }';
       expect(mermaidConverter.toNewSyntax(input)).toBe(expected);
     });
+    
+    test('should handle function calls in labels - generateMetadata()', () => {
+      const input = 'MetadataGen[generateMetadata()]';
+      const expected = 'MetadataGen@{ shape: rect, label: "generateMetadata()" }';
+      expect(mermaidConverter.toNewSyntax(input)).toBe(expected);
+    });
+
+    test('should handle multiple function calls in labels', () => {
+      const input = 'A[init() -> process() -> finish()]';
+      const expected = 'A@{ shape: rect, label: "init() -> process() -> finish()" }';
+      expect(mermaidConverter.toNewSyntax(input)).toBe(expected);
+    });
+    
+    test('should handle function calls with parameters in labels', () => {
+      const input = 'B[getData(id, options)]';
+      const expected = 'B@{ shape: rect, label: "getData(id, options)" }';
+      expect(mermaidConverter.toNewSyntax(input)).toBe(expected);
+    });
   });
 
   describe('Edge Cases', () => {
@@ -179,6 +197,32 @@ describe('MermaidConverter', () => {
       expect(result).toContain('@{ shape:');
       // The Docker command should be handled properly
       expect(result).toContain('CMD');
+    });
+    
+    test('should handle generateMetadata() function call in full diagram', () => {
+      const input = `graph TD
+    User[사용자] --> Browser[웹 브라우저]
+    Browser --> FE_Layout@{ shape: rect, label: "RootLayout (app/[locale]/layout.tsx)" }
+    FE_Layout --> FE_Page[페이지 컴포넌트 (e.g., introduction/page.tsx)]
+    FE_Layout --> Providers[Context/Query/Jotai Providers]
+    FE_Layout --> MetadataGen[generateMetadata()]
+    MetadataGen --> SEO[SEO 최적화]
+    FE_Layout --> WebViewEvent[WebViewEventProvider]
+    FE_Layout --> AuthContext[AuthContextProvider]
+    Providers --> Children[렌더링될 페이지 콘텐츠]
+    FE_Page --> Children`;
+      
+      const result = preprocessChart(input);
+      
+      // Should convert MetadataGen[generateMetadata()] correctly
+      expect(result).toContain('MetadataGen@{ shape: rect, label: "generateMetadata()" }');
+      
+      // Should NOT convert generateMetadata() as a separate rounded node
+      expect(result).not.toContain('generateMetadata@{ shape: rounded');
+      
+      // Other nodes should be converted correctly
+      expect(result).toContain('User@{ shape: rect, label: "사용자" }');
+      expect(result).toContain('SEO@{ shape: rect, label: "SEO 최적화" }');
     });
 
     test('should handle various bracket combinations', () => {

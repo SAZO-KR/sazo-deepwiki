@@ -303,9 +303,21 @@ const FullScreenModal: React.FC<{
   );
 };
 
+// Shape 정의 인터페이스
+interface ShapePattern {
+  regex: RegExp | null;
+  shape: string;
+  requiresSpecialHandling?: boolean;
+}
+
 // MermaidConverter class for handling Mermaid v11.3.0 @{} syntax conversion
 export class MermaidConverter {
-  private nodePatterns: Array<{ regex: RegExp | null; shape: string }>;
+  private nodePatterns: ShapePattern[];
+  
+  // 상수 정의
+  private static readonly TEMP_MARKER = '___NODE___';
+  private static readonly ARROW_PATTERNS = /(^|\s|-->|---|--|==|==>|\.\.>)/;
+  private static readonly NODE_ID_PATTERN = /(\w+)/;
 
   constructor() {
     // Define patterns in order of specificity (most specific first)
@@ -324,16 +336,52 @@ export class MermaidConverter {
       { regex: /(\w+)\[\\(.+?)\\\]/g, shape: 'lean-l' },
       { regex: /(\w+)\[\/(.+?)\\\]/g, shape: 'trap-b' },
       { regex: /(\w+)\[\\(.+?)\/\]/g, shape: 'trap-t' },
-      // Basic shapes - use special handling for rectangles to support nested brackets
-      { regex: null, shape: 'rect' }, // Will be handled specially
-      { regex: /(\w+)\((.+?)\)/g, shape: 'rounded' },
+      // Basic shapes with special handling flags
+      { regex: null, shape: 'rect', requiresSpecialHandling: true },
+      { regex: /(\w+)\((.+?)\)/g, shape: 'rounded', requiresSpecialHandling: true },
       { regex: /(\w+)>(.+?)\]/g, shape: 'odd' },
       { regex: /(\w+)\{(.+?)\}/g, shape: 'diam' }
     ];
   }
 
   private escapeQuotes(text: string): string {
+    // Escape quotes for JSON string
     return text.replace(/"/g, '\\"');
+  }
+
+  private escapeLabelForMermaid(text: string): string {
+    // First escape quotes
+    let escaped = text.replace(/"/g, '\\"');
+    
+    // Handle URLs by escaping colons
+    // Mermaid v11.3.0 treats colons as special characters in labels
+    // We need to escape them to prevent rendering issues
+    if (escaped.includes('://')) {
+      // For URLs, we need to use HTML entity encoding for colons
+      escaped = escaped.replace(/:/g, '&#58;');
+    }
+    
+    return escaped;
+  }
+
+  // 노드 변환 문자열 생성
+  private createNodeConversion(nodeId: string, shape: string, label: string): string {
+    return `${nodeId}@{ shape: ${shape}, label: "${this.escapeLabelForMermaid(label.trim())}" }`;
+  }
+
+  // 플레이스홀더 생성
+  private createPlaceholder(prefix: string, index: number): string {
+    return `${prefix}${MermaidConverter.TEMP_MARKER}${index}${MermaidConverter.TEMP_MARKER}`;
+  }
+
+  // 마커를 실제 변환으로 교체
+  private replaceMarkersWithConversions(text: string, conversions: string[]): string {
+    let result = text;
+    for (let i = 0; i < conversions.length; i++) {
+      const marker = `${MermaidConverter.TEMP_MARKER}${i}${MermaidConverter.TEMP_MARKER}`;
+      result = result.replace(marker, conversions[i]);
+    }
+    return result;
   }
 
   // Helper function to find matching bracket considering nested brackets
@@ -375,63 +423,105 @@ export class MermaidConverter {
     return -1;
   }
 
-  // Process node definitions in a line
-  private processNodeDefinitions(line: string): string {
-    let processedLine = line;
+  // 통합된 shape 처리 메소드
+  private processShapeWithRegex(
+    processedLine: string,
+    nodeDefinitions: string[],
+    regex: RegExp,
+    shape: string,
+    openChar: string,
+    closeChar: string
+  ): string {
+    let line = processedLine;
+    let match;
     
-    // Process all node definitions in the line
-    for (const {regex, shape} of this.nodePatterns) {
-      if (shape === 'rect') {
-        // Special handling for rectangles to support nested brackets
-        let rectMatch;
-        // Look for node IDs followed by [ but make sure it's a node definition
-        // by checking for arrow operators or line start
-        const rectRegex = /(^|\s|-->|->|---|--|==|==>|\.->|\.\.>)(\w+)\[/g;
-        while ((rectMatch = rectRegex.exec(processedLine)) !== null) {
-          const prefix = rectMatch[1];
-          const nodeId = rectMatch[2];
-          const startBracket = rectMatch.index! + prefix.length + nodeId.length;
-          const endBracket = this.findMatchingBracket(processedLine, startBracket);
-          
-          if (endBracket !== -1) {
-            const label = processedLine.substring(startBracket + 1, endBracket);
-            const replacement = `${prefix}${nodeId}@{ shape: rect, label: "${this.escapeQuotes(label.trim())}" }`;
-            processedLine = processedLine.substring(0, rectMatch.index) + 
-                           replacement + 
-                           processedLine.substring(endBracket + 1);
-            // Reset regex after modification
-            rectRegex.lastIndex = rectMatch.index + replacement.length;
-          } else {
-            break;
-          }
-        }
-      } else if (shape === 'rounded' && regex) {
-        // Special handling for rounded parentheses with nested content
-        let roundMatch;
-        const roundRegex = /(\w+)\(/g;
-        while ((roundMatch = roundRegex.exec(processedLine)) !== null) {
-          const nodeId = roundMatch[1];
-          const startParen = roundMatch.index! + nodeId.length;
-          const endParen = this.findMatchingParenthesis(processedLine, startParen, '(', ')');
-          
-          if (endParen !== -1) {
-            const label = processedLine.substring(startParen + 1, endParen);
-            const replacement = `${nodeId}@{ shape: rounded, label: "${this.escapeQuotes(label.trim())}" }`;
-            const before = processedLine.substring(0, roundMatch.index);
-            const after = processedLine.substring(endParen + 1);
-            processedLine = before + replacement + after;
-            // Reset regex after modification
-            roundRegex.lastIndex = before.length + replacement.length;
-          }
-        }
-      } else if (regex) {
-        processedLine = processedLine.replace(regex, (match, nodeId, label) => {
-          return `${nodeId}@{ shape: ${shape}, label: "${this.escapeQuotes(label.trim())}" }`;
-        });
+    while ((match = regex.exec(line)) !== null) {
+      const prefix = match[1];
+      const nodeId = match[2];
+      const startPos = match.index! + prefix.length + nodeId.length;
+      
+      // Find matching closing character
+      const endPos = openChar === '['
+        ? this.findMatchingBracket(line, startPos)
+        : this.findMatchingParenthesis(line, startPos, openChar, closeChar);
+      
+      if (endPos !== -1) {
+        const label = line.substring(startPos + 1, endPos);
+        const conversion = this.createNodeConversion(nodeId, shape, label);
+        nodeDefinitions.push(conversion);
+        const placeholder = this.createPlaceholder(prefix, nodeDefinitions.length - 1);
+        
+        // Replace the matched pattern with placeholder
+        const before = line.substring(0, match.index);
+        const after = line.substring(endPos + 1);
+        line = before + placeholder + after;
+        
+        // Reset regex position
+        regex.lastIndex = before.length + placeholder.length;
       }
     }
     
-    return processedLine;
+    return line;
+  }
+
+  // Rounded shape 처리
+  private processRoundedShape(
+    processedLine: string, 
+    nodeDefinitions: string[]
+  ): string {
+    const roundRegex = /(^|\s|-->|---|--|==|==>|\.\.>)(\w+)\(/g;
+    return this.processShapeWithRegex(processedLine, nodeDefinitions, roundRegex, 'rounded', '(', ')');
+  }
+
+  // Rect shape 처리
+  private processRectShape(
+    processedLine: string,
+    nodeDefinitions: string[]
+  ): string {
+    const rectRegex = /(^|\s|-->|---|--|==|==>|\.\.>)(\w+)\[/g;
+    return this.processShapeWithRegex(processedLine, nodeDefinitions, rectRegex, 'rect', '[', ']');
+  }
+
+  // 기타 shape 처리
+  private processOtherShapes(
+    processedLine: string,
+    nodeDefinitions: string[],
+    regex: RegExp,
+    shape: string
+  ): string {
+    return processedLine.replace(regex, (match, nodeId, label) => {
+      const conversion = this.createNodeConversion(nodeId, shape, label);
+      nodeDefinitions.push(conversion);
+      return `${MermaidConverter.TEMP_MARKER}${nodeDefinitions.length - 1}${MermaidConverter.TEMP_MARKER}`;
+    });
+  }
+
+  // Process node definitions in a line
+  private processNodeDefinitions(line: string): string {
+    let processedLine = line;
+    const nodeDefinitions: string[] = [];
+    
+    // Process more specific patterns first (triple, double, etc.)
+    for (const pattern of this.nodePatterns) {
+      const {regex, shape, requiresSpecialHandling} = pattern;
+      
+      // Skip rect and rounded for now - handle them specially
+      if (shape === 'rect' || shape === 'rounded') continue;
+      
+      if (!regex) continue;
+      
+      // Process other shapes with simple regex replacement
+      processedLine = this.processOtherShapes(processedLine, nodeDefinitions, regex, shape);
+    }
+    
+    // Process rectangles BEFORE rounded (rect is more general and should capture complete labels)
+    processedLine = this.processRectShape(processedLine, nodeDefinitions);
+    
+    // Process rounded shapes AFTER rectangles (to avoid processing content inside rect labels)
+    processedLine = this.processRoundedShape(processedLine, nodeDefinitions);
+    
+    // Replace all markers with actual conversions
+    return this.replaceMarkersWithConversions(processedLine, nodeDefinitions);
   }
 
   // Convert old syntax to new @{} syntax
