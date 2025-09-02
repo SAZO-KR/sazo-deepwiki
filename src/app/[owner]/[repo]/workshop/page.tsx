@@ -305,7 +305,7 @@ Make the workshop content in ${language === 'en' ? 'English' :
   language === "pt-br" ? "Brazilian Portuguese (Português Brasileiro)" :
   language === "fr" ? "Français (French)" :
   language === "ru" ? "Русский (Russian)" :
-  'English'} language.`
+  'Korean (한국어)'} language.`
         }]
       };
 

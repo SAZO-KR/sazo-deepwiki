@@ -553,10 +553,6 @@ export default function Home() {
               </div>
               <div
                 className="bg-[var(--background)]/70 p-3 rounded border border-[var(--border-color)] font-mono overflow-x-hidden whitespace-nowrap"
-              >AsyncFuncAI/deepwiki-open
-              </div>
-              <div
-                className="bg-[var(--background)]/70 p-3 rounded border border-[var(--border-color)] font-mono overflow-x-hidden whitespace-nowrap"
               >https://bitbucket.org/atlassian/atlaskit
               </div>
             </div>
@@ -606,10 +602,6 @@ export default function Home() {
               <a href="https://github.com/AsyncFuncAI/deepwiki-open" target="_blank" rel="noopener noreferrer"
                 className="text-[var(--muted)] hover:text-[var(--accent-primary)] transition-colors">
                 <FaGithub className="text-xl" />
-              </a>
-              <a href="https://buymeacoffee.com/sheing" target="_blank" rel="noopener noreferrer"
-                className="text-[var(--muted)] hover:text-[var(--accent-primary)] transition-colors">
-                <FaCoffee className="text-xl" />
               </a>
               <a href="https://x.com/sashimikun_void" target="_blank" rel="noopener noreferrer"
                 className="text-[var(--muted)] hover:text-[var(--accent-primary)] transition-colors">

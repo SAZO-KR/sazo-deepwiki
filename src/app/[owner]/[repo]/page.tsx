@@ -594,7 +594,7 @@ export default function RepoWikiPage() {
         type: effectiveRepoInfo.type,
         messages: [{
           role: 'user',
-content: `Analyze this GitHub repository ${owner}/${repo} and create a wiki structure for it.
+          content: `Analyze this GitHub repository ${owner}/${repo} and create a wiki structure for it.
 
 1. The complete file tree of the project:
 <file_tree>
@@ -613,12 +613,12 @@ IMPORTANT: The wiki content will be generated in ${language === 'en' ? 'English'
             language === 'zh' ? 'Mandarin Chinese (中文)' :
             language === 'zh-tw' ? 'Traditional Chinese (繁體中文)' :
             language === 'es' ? 'Spanish (Español)' :
-            language === 'kr' ? 'Korean (한国語)' :
+            language === 'kr' ? 'Korean (한국어)' :
             language === 'vi' ? 'Vietnamese (Tiếng Việt)' :
             language === "pt-br" ? "Brazilian Portuguese (Português Brasileiro)" :
             language === "fr" ? "Français (French)" :
             language === "ru" ? "Русский (Russian)" :
-            'English'} language.
+            'Korean (한국어)'} language.
 
 When designing the wiki structure, include pages that would benefit from visual diagrams, such as:
 - Architecture overviews

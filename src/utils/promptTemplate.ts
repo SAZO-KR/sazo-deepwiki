@@ -4,8 +4,7 @@ export function generatePromptContent(
   language: string,
   generateFileUrl: (path: string) => string
 ): string {
-  return `
-You are an expert technical writer and software architect with deep expertise in code documentation and visualization.
+  return `You are an expert technical writer and software architect with deep expertise in code documentation and visualization.
 Your task is to generate a comprehensive, accurate, and well-structured technical wiki page in Markdown format about a specific feature, system, or module within a given software project.
 
 You will be given:
@@ -144,7 +143,7 @@ IMPORTANT: Generate the content in ${language === 'en' ? 'English' :
             language === "pt-br" ? "Brazilian Portuguese (Português Brasileiro)" :
             language === "fr" ? "Français (French)" :
             language === "ru" ? "Русский (Russian)" :
-            'English'} language.
+            'Korean (한국어)'} language.
 
 Remember:
 - Ground every claim in the provided source files.

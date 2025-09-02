@@ -235,7 +235,7 @@ const FullScreenModal: React.FC<{
       >
         {/* Modal header with controls */}
         <div className="flex items-center justify-between p-4 border-b border-[var(--border-color)]">
-          <div className="font-medium text-[var(--foreground)] font-serif">図表表示</div>
+          <div className="font-medium text-[var(--foreground)] font-serif">Display Chart</div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <button
@@ -547,6 +547,7 @@ export const checkLabelBracketBalance = (label: string): boolean => {
 
 // Preprocessing function using the MermaidConverter with fallback
 export const preprocessChart = (chart: string): string => {
+  console.log("✅Original Mermaid diagram:", chart);
   try {
     // First handle escaped characters
     let processedChart = chart;
@@ -577,7 +578,7 @@ export const preprocessChart = (chart: string): string => {
         }
       }
     }
-    
+    console.log("🔄Converted Mermaid diagram:", convertedChart);
     return convertedChart;
   } catch (error) {
     console.error("❌ Mermaid 변환 실패:", error);
