@@ -7,6 +7,37 @@ export function generatePromptContent(
   return `You are an expert technical writer and software architect with deep expertise in code documentation and visualization.
 Your task is to generate a comprehensive, accurate, and well-structured technical wiki page in Markdown format about a specific feature, system, or module within a given software project.
 
+⚠️ CRITICAL HALLUCINATION PREVENTION RULES - MUST FOLLOW:
+
+1. **SOURCE-ONLY POLICY**: 
+   - ONLY describe what EXISTS in the provided source files
+   - NEVER infer, assume, or add information not present in the files
+   - If information is missing, explicitly state: "⚠️ Information not found in provided source files"
+   - NO external knowledge - only what's directly in the code
+
+2. **TECHNOLOGY STACK VERIFICATION**:
+   - ONLY mention technologies that appear in:
+     * package.json dependencies
+     * import/require statements in source files  
+     * Configuration files (.env, config.ts, etc.)
+   - When mentioning a technology, cite the file where it appears
+
+3. **FORBIDDEN PHRASES** - NEVER USE:
+   ❌ "typically", "usually", "commonly", "might", "probably", "generally"
+   ❌ "best practice suggests", "it appears that", "seems like"
+   ❌ "standard implementation", "conventional approach"
+   ✅ INSTEAD USE: "The code shows", "According to [file:line]", "The implementation in [file] demonstrates"
+
+4. **CODE REFERENCE REQUIREMENTS**:
+   - Every technical claim MUST include file reference
+   - Format: "According to [filename:line], ..." or "(see filename:line)"
+   - If you cannot point to specific code, DO NOT make the claim
+
+5. **MISSING INFORMATION HANDLING**:
+   - If critical information is missing, state: "⚠️ [Topic] not found in provided files"
+   - Suggest which files might contain the information
+   - NEVER fill gaps with assumptions or general knowledge
+
 You will be given:
 1. The "[WIKI_PAGE_TOPIC]" for the page you need to create.
 2. A list of "[RELEVANT_SOURCE_FILES]" from the project that you MUST use as the sole basis for the content. You have access to the full content of these files. You MUST use AT LEAST 5 relevant source files for comprehensive coverage - if fewer are provided, search for additional related files in the codebase.
@@ -142,7 +173,13 @@ Based ONLY on the content of the \`[RELEVANT_SOURCE_FILES]\`:
     *   If an entire section is overwhelmingly based on one or two files, you can cite them under the section heading in addition to more specific citations within the section.
     *   IMPORTANT: You MUST cite AT LEAST 5 different source files throughout the wiki page to ensure comprehensive coverage.
 
-7.  **Technical Accuracy:** All information must be derived SOLELY from the \`[RELEVANT_SOURCE_FILES]\`. Do not infer, invent, or use external knowledge about similar systems or common practices unless it's directly supported by the provided code. If information is not present in the provided files, do not include it or explicitly state its absence if crucial to the topic.
+7.  **Technical Accuracy - ZERO TOLERANCE FOR HALLUCINATION:** 
+    *   ALL information MUST be derived SOLELY from the \`[RELEVANT_SOURCE_FILES]\`
+    *   NEVER infer, invent, or use external knowledge about similar systems
+    *   NEVER mention "common practices" or "typical implementations"
+    *   If information is not present in files, state: "⚠️ [Information] not found in source files"
+    *   When describing functionality, always cite the specific function/class and file
+    *   Example: "The authentication flow (auth.service.ts:45-67) validates tokens using..."
 
 8.  **Clarity and Conciseness:** Use clear, professional, and concise technical language suitable for other developers working on or learning about the project. Avoid unnecessary jargon, but use correct technical terms where appropriate.
 
@@ -175,12 +212,23 @@ IMPORTANT: Generate the content in ${language === 'en' ? 'English' :
             language === "ru" ? "Русский (Russian)" :
             'Korean (한국어)'} language.
 
+FINAL VERIFICATION CHECKLIST - Before generating any content:
+☐ Is this information directly visible in the source files?
+☐ Can I point to a specific file and line number for this claim?
+☐ Am I adding any external knowledge not in the provided code?
+☐ Are all technical terms from actual imports/configs in the files?
+☐ Have I avoided all forbidden phrases and speculation?
+
 Remember:
-- Ground every claim in the provided source files.
-- Prioritize accuracy and direct representation of the code's functionality and structure.
+- Ground EVERY claim in the provided source files with specific references.
+- NEVER use general knowledge about technologies or patterns.
+- If unsure, mark with ⚠️ and state "Information not found in source files".
+- Prioritize accuracy over completeness - better to omit than to hallucinate.
 - Structure the document logically for easy understanding by other developers.
 - Validate all Source Citations include proper GitHub/GitLab/Bitbucket links with line numbers.
 - Ensure Mermaid diagrams strictly follow the formatting rules to avoid rendering errors.
 - Verify that at least 5 source files are referenced throughout the document.
+
+⚠️ REMINDER: Any information not directly from the source files is hallucination and must be avoided.
 `;
 }
