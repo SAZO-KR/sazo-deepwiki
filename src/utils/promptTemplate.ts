@@ -35,60 +35,90 @@ Based ONLY on the content of the \`[RELEVANT_SOURCE_FILES]\`:
     *   Identify key functions, classes, data structures, API endpoints, or configuration elements pertinent to that section.
 
 3.  **Mermaid Diagrams:**
-    *   EXTENSIVELY use Mermaid diagrams (e.g., \`flowchart TD\`, \`sequenceDiagram\`, \`classDiagram\`, \`erDiagram\`, \`graph TD\`) to visually represent architectures, flows, relationships, and schemas found in the source files.
+    *   EXTENSIVELY use Mermaid diagrams (e.g., \`flowchart TD\`, \`sequenceDiagram\`, \`classDiagram\`, \`erDiagram\`) to visually represent architectures, flows, relationships, and schemas found in the source files.
     *   Ensure diagrams are accurate and directly derived from information in the \`[RELEVANT_SOURCE_FILES]\`.
     *   Provide a brief explanation before or after each diagram to give context.
     *   CRITICAL: All diagrams MUST follow these strict rules:
+
        **General Rules:**
-       - Use "graph TD" or "flowchart TD" (top-down) directive for flow diagrams
-       - NEVER use "graph LR" or "flowchart LR" (left-right)
-       - Use Mermaid v11.3.0 @{} syntax for ALL nodes - this is MANDATORY
+       - Use "flowchart TD" (top-down) directive for flow diagrams
        - Node IDs must be alphanumeric only (no spaces, special characters)
-       - Labels go inside the @{} syntax with proper escaping
-       - Maximum node width should be 3-4 words
-       - Escape special characters in labels (use \\" for quotes inside @{} syntax)
+       - Keep labels concise (3-4 words maximum)
+       - ALL link labels with special characters MUST be wrapped in quotes (see detailed rules below)
        
-       **For Flow Diagrams:**
-       - Start with "graph TD" or "flowchart TD"
-       - Use Mermaid v11.3.0 @{} syntax for ALL nodes (mandatory):
-         - Basic rectangle: nodeId@{ shape: rect, label: "Node Label" }
-         - Rounded: nodeId@{ shape: rounded, label: "Node Label" }
-         - Circle: nodeId@{ shape: circle, label: "Node Label" }
-         - Diamond: nodeId@{ shape: diam, label: "Node Label" }
-         - Hexagon: nodeId@{ shape: hex, label: "Node Label" }
-         - Stadium: nodeId@{ shape: stadium, label: "Node Label" }
-       - Example flow:
+       **For Flow Diagrams (flowchart only):**
+       - Start with "flowchart TD"
+       - PREFERRED: Use Mermaid v11.3.0+ @{} syntax for easier escaping:
+         - Rectangle: \`nodeId@{ shape: rect, label: "Node Label" }\`
+         - Rounded: \`nodeId@{ shape: rounded, label: "Node Label" }\`
+         - Circle: \`nodeId@{ shape: circle, label: "Node Label" }\`
+         - Diamond: \`nodeId@{ shape: diam, label: "Node Label" }\`
+         - Hexagon: \`nodeId@{ shape: hex, label: "Node Label" }\`
+         - Stadium: \`nodeId@{ shape: stadium, label: "Node Label" }\`
+         - Database: \`nodeId@{ shape: cyl, label: "Database Name" }\`
+       - ALTERNATIVE: Use traditional syntax if needed:
+         - Rectangle: \`nodeId["Node Label"]\`
+         - Rounded: \`nodeId("Node Label")\`
+         - Diamond: \`nodeId{"Node Label"}\`
+       - CRITICAL: Link labels MUST use quotes in these cases:
+         - Non-ASCII characters: \`A --> B: "한글 라벨"\`, \`A --> B: "español"\`
+         - Spaces: \`A --> B: "Multi word label"\`
+         - Special characters: \`A --> B: "Label: with colon"\`, \`A --> B: "Label (parentheses)"\`
+         - Numbers at start: \`A --> B: "123 start with number"\`
+         - Reserved words: \`A --> B: "end"\`, \`A --> B: "class"\`
+         - Punctuation: \`A --> B: "Hello, World!"\`, \`A --> B: "Label-with-dash"\`
+         - Conditional labels: \`A -->|"Yes/No"| B\`, \`A -->|"성공"| B\`
+       - Example:
          \`\`\`
-         graph TD
+         flowchart TD
            A@{ shape: rect, label: "User Login" } --> B@{ shape: diam, label: "Valid?" }
-           B -->|Yes| C@{ shape: rounded, label: "Dashboard" }
-           B -->|No| D@{ shape: rect, label: "Error Page" }
+           B -->|"Yes"| C@{ shape: rounded, label: "Dashboard" }
+           B -->|"No"| D@{ shape: rect, label: "Error Page" }
+           A --> B: "사용자 입력"
+           C --> A: "Log out"
          \`\`\`
-       - Use subgraphs for logical grouping
        
        **For Sequence Diagrams:**
        - Start with "sequenceDiagram" directive on its own line
-       - Define ALL participants at the beginning
-       - Use descriptive but concise participant names
+       - Define participants using \`participant [ID] as [Label]\` format
        - Use the correct arrow types:
-         - ->> for request/asynchronous messages
-         - -->> for response messages
-         - -x for failed messages
-       - Include activation boxes using +/- notation
-       - Add notes for clarification using "Note over" or "Note right of"
+         - \`->>\` for request/call messages
+         - \`-->>\` for response messages
+         - \`-x\` for failed messages
+       - Include activation boxes using \`+\`/\`-\` notation
+       - Example:
+         \`\`\`
+         sequenceDiagram
+           participant User as 사용자
+           participant API as API 서버
+           User->>+API: 로그인 요청
+           API-->>-User: 토큰 반환
+         \`\`\`
        
        **For Class Diagrams:**
-       - Use proper relationship syntax (--|>, ..|>, o--, *--)
-       - Include visibility markers (+public, -private, #protected)
-       - Use @{} syntax for class nodes if including special characters
+       - Use proper relationship syntax (\`--|\`, \`..|>\`, \`o--\`, \`*--\`)
+       - Include visibility markers (\`+public\`, \`-private\`, \`#protected\`)
+       - Use standard class syntax only - NO @{} syntax
        
-       **Common Issues to Avoid:**
-       - NEVER use old bracket syntax like A[Label] or A(Label)
-       - ALWAYS use @{} syntax: A@{ shape: rect, label: "Label" }
-       - Don't use parentheses in node IDs
-       - Don't mix diagram types in one block
-       - Escape quotes in labels with \\"
-       - Keep diagrams focused - split large diagrams into multiple smaller ones
+       **CRITICAL Rules to Prevent Parsing Errors:**
+       - @{} syntax ONLY works in flowchart diagrams
+       - NO spaces between nodeId and @{}: use \`nodeId@{...}\` not \`nodeId @{...}\`
+       - Link labels MUST be quoted if they contain:
+         * Non-English characters (한글, español, 中文, etc.)
+         * Spaces or multiple words
+         * Special characters: \`:()[]{}|<>@#$%&*+=!?/\\\`
+         * Numbers at the beginning
+         * Reserved keywords: end, class, graph, etc.
+         * Any punctuation marks
+       - Safe rule: **When in doubt, always use quotes for link labels**
+       - Never mix @{} syntax with other diagram types
+       - Test all diagrams for syntax validity
+       
+       **Benefits of @{} syntax in flowcharts:**
+       - Easier handling of special characters in node labels
+       - No complex escaping needed for node labels
+       - More semantic shape names (rect, diam, cyl, etc.)
+       - Better readability for complex node labels
 
 4.  **Tables:**
     *   Use Markdown tables to summarize information such as:
