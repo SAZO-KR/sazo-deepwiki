@@ -303,253 +303,335 @@ const FullScreenModal: React.FC<{
   );
 };
 
-// Shape 정의 인터페이스
-interface ShapePattern {
-  regex: RegExp | null;
-  shape: string;
-  requiresSpecialHandling?: boolean;
-}
-
 // MermaidConverter class for handling Mermaid v11.3.0 @{} syntax conversion
-export class MermaidConverter {
-  private nodePatterns: ShapePattern[];
-  
-  // 상수 정의
-  private static readonly TEMP_MARKER = '___NODE___';
-  private static readonly ARROW_PATTERNS = /(^|\s|-->|---|--|==|==>|\.\.>)/;
-  private static readonly NODE_ID_PATTERN = /(\w+)/;
-
-  constructor() {
-    // Define patterns in order of specificity (most specific first)
-    this.nodePatterns = [
-      // Triple parenthesis must come before double
-      { regex: /(\w+)\(\(\((.+?)\)\)\)/g, shape: 'dbl-circ' },
-      // Double brackets/braces must come before single
-      { regex: /(\w+)\[\[(.+?)\]\]/g, shape: 'subroutine' },
-      { regex: /(\w+)\{\{(.+?)\}\}/g, shape: 'hex' },
-      // Combined shapes
-      { regex: /(\w+)\(\[(.+?)\]\)/g, shape: 'stadium' },
-      { regex: /(\w+)\[\((.+?)\)\]/g, shape: 'cylinder' },
-      { regex: /(\w+)\(\((.+?)\)\)/g, shape: 'circle' },
-      // Parallelogram variations (order matters!)
-      { regex: /(\w+)\[\/(.+?)\/\]/g, shape: 'lean-r' },
-      { regex: /(\w+)\[\\(.+?)\\\]/g, shape: 'lean-l' },
-      { regex: /(\w+)\[\/(.+?)\\\]/g, shape: 'trap-b' },
-      { regex: /(\w+)\[\\(.+?)\/\]/g, shape: 'trap-t' },
-      // Basic shapes with special handling flags
-      { regex: null, shape: 'rect', requiresSpecialHandling: true },
-      { regex: /(\w+)\((.+?)\)/g, shape: 'rounded', requiresSpecialHandling: true },
-      { regex: /(\w+)>(.+?)\]/g, shape: 'odd' },
-      { regex: /(\w+)\{(.+?)\}/g, shape: 'diam' }
-    ];
-  }
-
-  private escapeQuotes(text: string): string {
-    // Escape quotes for JSON string
-    return text.replace(/"/g, '\\"');
-  }
-
-  private escapeLabelForMermaid(text: string): string {
-    // First escape quotes
-    let escaped = text.replace(/"/g, '\\"');
+class MermaidConverter {
+  // Detect the type of Mermaid diagram
+  public detectDiagramType(mermaidCode: string): string {
+    const firstLine = mermaidCode.trim().split('\n')[0].toLowerCase();
     
-    // Handle URLs by escaping colons
-    // Mermaid v11.3.0 treats colons as special characters in labels
-    // We need to escape them to prevent rendering issues
-    if (escaped.includes('://')) {
-      // For URLs, we need to use HTML entity encoding for colons
-      escaped = escaped.replace(/:/g, '&#58;');
+    if (firstLine.includes('sequencediagram')) return 'sequence';
+    if (firstLine.includes('flowchart')) return 'flowchart';
+    if (firstLine.includes('graph')) return 'graph';
+    if (firstLine.includes('classDiagram')) return 'class';
+    if (firstLine.includes('stateDiagram')) return 'state';
+    if (firstLine.includes('erDiagram')) return 'er';
+    if (firstLine.includes('gantt')) return 'gantt';
+    if (firstLine.includes('pie')) return 'pie';
+    if (firstLine.includes('gitGraph')) return 'git';
+    
+    return 'unknown';
+  }
+
+  // Process sequence diagram according to official Mermaid syntax
+  private processSequenceDiagram(lines: string[]): string[] {
+    const result: string[] = [];
+    
+    for (const line of lines) {
+      // Process message lines
+      const messagePattern = /^(\s*)([\w\s]+)(->>\+?|-->>\-?|->>|-->>|-x|->|-->)([\w\s]+):\s*(.+)$/;
+      const match = line.match(messagePattern);
+      
+      if (match) {
+        const [, indent, from, arrow, to, message] = match;
+        // According to Mermaid docs, semicolons must be escaped as #59;
+        // because they can be used as line breaks in the markup
+        const escapedMessage = message.replace(/;/g, '#59;');
+        result.push(`${indent}${from}${arrow}${to}: ${escapedMessage}`);
+      } else {
+        // Keep other lines as-is (sequenceDiagram declaration, participant declarations, notes, etc.)
+        result.push(line);
+      }
     }
     
-    return escaped;
-  }
-
-  // 노드 변환 문자열 생성
-  private createNodeConversion(nodeId: string, shape: string, label: string): string {
-    return `${nodeId}@{ shape: ${shape}, label: "${this.escapeLabelForMermaid(label.trim())}" }`;
-  }
-
-  // 플레이스홀더 생성
-  private createPlaceholder(prefix: string, index: number): string {
-    return `${prefix}${MermaidConverter.TEMP_MARKER}${index}${MermaidConverter.TEMP_MARKER}`;
-  }
-
-  // 마커를 실제 변환으로 교체
-  private replaceMarkersWithConversions(text: string, conversions: string[]): string {
-    let result = text;
-    for (let i = 0; i < conversions.length; i++) {
-      const marker = `${MermaidConverter.TEMP_MARKER}${i}${MermaidConverter.TEMP_MARKER}`;
-      result = result.replace(marker, conversions[i]);
-    }
     return result;
   }
 
-  // Helper function to find matching bracket considering nested brackets
-  private findMatchingBracket(text: string, startPos: number): number {
-    let depth = 0;
-    for (let i = startPos; i < text.length; i++) {
-      if (text[i] === '[') depth++;
-      if (text[i] === ']') {
-        depth--;
-        if (depth === 0) return i;
-      }
-    }
-    return -1;
-  }
-
-  // Helper function to find matching parenthesis considering nested structures
-  private findMatchingParenthesis(text: string, startPos: number, openChar: string, closeChar: string): number {
-    let depth = 0;
-    let inBraces = 0;
-    let inBrackets = 0;
-    
-    for (let i = startPos; i < text.length; i++) {
-      // Track nested structures
-      if (text[i] === '{') inBraces++;
-      if (text[i] === '}') inBraces--;
-      if (text[i] === '[') inBrackets++;
-      if (text[i] === ']') inBrackets--;
-      
-      // Only count our target parenthesis when not inside other structures
-      if (text[i] === openChar) {
-        depth++;
-      } else if (text[i] === closeChar) {
-        depth--;
-        if (depth === 0) {
-          return i;
-        }
-      }
-    }
-    return -1;
-  }
-
-  // 통합된 shape 처리 메소드
-  private processShapeWithRegex(
-    processedLine: string,
-    nodeDefinitions: string[],
-    regex: RegExp,
-    shape: string,
-    openChar: string,
-    closeChar: string
-  ): string {
-    let line = processedLine;
-    let match;
-    
-    while ((match = regex.exec(line)) !== null) {
-      const prefix = match[1];
-      const nodeId = match[2];
-      const startPos = match.index! + prefix.length + nodeId.length;
-      
-      // Find matching closing character
-      const endPos = openChar === '['
-        ? this.findMatchingBracket(line, startPos)
-        : this.findMatchingParenthesis(line, startPos, openChar, closeChar);
-      
-      if (endPos !== -1) {
-        const label = line.substring(startPos + 1, endPos);
-        const conversion = this.createNodeConversion(nodeId, shape, label);
-        nodeDefinitions.push(conversion);
-        const placeholder = this.createPlaceholder(prefix, nodeDefinitions.length - 1);
-        
-        // Replace the matched pattern with placeholder
-        const before = line.substring(0, match.index);
-        const after = line.substring(endPos + 1);
-        line = before + placeholder + after;
-        
-        // Reset regex position
-        regex.lastIndex = before.length + placeholder.length;
-      }
-    }
-    
-    return line;
-  }
-
-  // Rounded shape 처리
-  private processRoundedShape(
-    processedLine: string, 
-    nodeDefinitions: string[]
-  ): string {
-    const roundRegex = /(^|\s|-->|---|--|==|==>|\.\.>)(\w+)\(/g;
-    return this.processShapeWithRegex(processedLine, nodeDefinitions, roundRegex, 'rounded', '(', ')');
-  }
-
-  // Rect shape 처리
-  private processRectShape(
-    processedLine: string,
-    nodeDefinitions: string[]
-  ): string {
-    const rectRegex = /(^|\s|-->|---|--|==|==>|\.\.>)(\w+)\[/g;
-    return this.processShapeWithRegex(processedLine, nodeDefinitions, rectRegex, 'rect', '[', ']');
-  }
-
-  // 기타 shape 처리
-  private processOtherShapes(
-    processedLine: string,
-    nodeDefinitions: string[],
-    regex: RegExp,
-    shape: string
-  ): string {
-    return processedLine.replace(regex, (match, nodeId, label) => {
-      const conversion = this.createNodeConversion(nodeId, shape, label);
-      nodeDefinitions.push(conversion);
-      return `${MermaidConverter.TEMP_MARKER}${nodeDefinitions.length - 1}${MermaidConverter.TEMP_MARKER}`;
-    });
-  }
-
-  // Process node definitions in a line
-  private processNodeDefinitions(line: string): string {
-    let processedLine = line;
-    const nodeDefinitions: string[] = [];
-    
-    // Process more specific patterns first (triple, double, etc.)
-    for (const pattern of this.nodePatterns) {
-      const {regex, shape, requiresSpecialHandling} = pattern;
-      
-      // Skip rect and rounded for now - handle them specially
-      if (shape === 'rect' || shape === 'rounded') continue;
-      
-      if (!regex) continue;
-      
-      // Process other shapes with simple regex replacement
-      processedLine = this.processOtherShapes(processedLine, nodeDefinitions, regex, shape);
-    }
-    
-    // Process rectangles BEFORE rounded (rect is more general and should capture complete labels)
-    processedLine = this.processRectShape(processedLine, nodeDefinitions);
-    
-    // Process rounded shapes AFTER rectangles (to avoid processing content inside rect labels)
-    processedLine = this.processRoundedShape(processedLine, nodeDefinitions);
-    
-    // Replace all markers with actual conversions
-    return this.replaceMarkersWithConversions(processedLine, nodeDefinitions);
-  }
-
-  // Convert old syntax to new @{} syntax
-  toNewSyntax(mermaidCode: string): string {
-    const lines = mermaidCode.split('\n');
+  // Process flowchart/graph diagram according to official Mermaid syntax
+  private processFlowchartDiagram(lines: string[]): string[] {
     const result: string[] = [];
-
+    
     for (const line of lines) {
-      // Skip empty lines and graph declarations
-      if (line.trim() === '' || line.trim().startsWith('graph') || line.trim().startsWith('flowchart')) {
+      const trimmedLine = line.trim();
+      
+      // Keep empty lines as-is
+      if (trimmedLine === '') {
         result.push(line);
         continue;
       }
-
+      
       let processedLine = line;
       
-      // First, handle edge labels with pipes
+      // Skip lines that already have the new @{ shape: ... } syntax
+      // This prevents double conversion of already converted nodes
+      if (processedLine.includes('@{ shape:')) {
+        result.push(processedLine);
+        continue;
+      }
+      
+      // Handle edge labels with pipes
       processedLine = processedLine.replace(/\|([^|]+)\|/g, (match, label) => {
-        return `|"${this.escapeQuotes(label.trim())}"|`;
+        const trimmedLabel = label.trim();
+        // Check if label is already quoted
+        if (trimmedLabel.startsWith('"') && trimmedLabel.endsWith('"')) {
+          return match;
+        }
+        // Add quotes and escape internal quotes
+        return `|"${this.escapeQuotes(trimmedLabel)}"|`;
       });
       
-      // Then process all node definitions (including those on arrow lines)
+      // Process node definitions
       processedLine = this.processNodeDefinitions(processedLine);
       
       result.push(processedLine);
     }
+    
+    // Validate the converted flowchart
+    const convertedChart = result.join('\n');
+    if (!this.validateFlowchartLabels(convertedChart)) {
+      console.warn("⚠️ Flowchart validation failed, some labels may have unbalanced brackets");
+      // Note: We still return the converted chart, but with a warning
+      // The caller (preprocessChart) can decide whether to use it or fallback
+    }
+    
+    return result;
+  }
+  
+  // Validate flowchart labels for proper bracket balance
+  private validateFlowchartLabels(chart: string): boolean {
+    // Extract all labels from @{ shape: ..., label: "..." } syntax
+    const labelMatches = chart.match(/label: "((?:[^"\\]|\\.)*)"/g);
+    
+    if (!labelMatches) {
+      return true; // No labels to validate
+    }
+    
+    for (const match of labelMatches) {
+      const label = match.substring(8, match.length - 1); // Extract label content
+      
+      // Skip validation for nested @{ shape: syntax (shouldn't happen but just in case)
+      if (label.includes('@{ shape:')) {
+        continue;
+      }
+      
+      // Check bracket balance in the label
+      if (!checkLabelBracketBalance(label)) {
+        console.warn("⚠️ Unbalanced brackets in label:", label);
+        return false;
+      }
+    }
+    
+    return true;
+  }
 
-    return result.join('\n');
+  // Process other diagram types (placeholder for future implementations)
+  private processOtherDiagram(lines: string[]): string[] {
+    // For now, return as-is
+    // In the future, we can add specific processing for class, state, ER, etc.
+    return lines;
+  }
+
+  // Main conversion method
+  public toNewSyntax(mermaidCode: string): string {
+    const lines = mermaidCode.split('\n');
+    const diagramType = this.detectDiagramType(mermaidCode);
+    
+    let processedLines: string[];
+    
+    switch (diagramType) {
+      case 'sequence':
+        processedLines = this.processSequenceDiagram(lines);
+        break;
+      case 'flowchart':
+      case 'graph':
+      case 'unknown':  // Treat unknown as flowchart/graph for backward compatibility
+      default:
+        processedLines = this.processFlowchartDiagram(lines);
+        break;
+    }
+    
+    return processedLines.join('\n');
+  }
+
+  // Helper method to escape quotes
+  private escapeQuotes(text: string): string {
+    return text.replace(/"/g, '\\"');
+  }
+
+  // Process rectangle shape [text]
+  private processRectangleShape(line: string, nodeDefinitions: Map<string, string>): string {
+    // More sophisticated regex to handle nested brackets and special characters
+    const regex = /(\w+)\[([^\[\]]*(?:\[[^\[\]]*\][^\[\]]*)*)\]/g;
+    
+    return line.replace(regex, (match, nodeId, label) => {
+      let cleanLabel = label.trim();
+      
+      // Handle escaped quotes and special characters in labels
+      if (cleanLabel.includes('"')) {
+        // Escape quotes for the @{} syntax
+        cleanLabel = cleanLabel.replace(/"/g, '\\"');
+      }
+      
+      nodeDefinitions.set(nodeId, `@{ shape: rect, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process diamond shape {text}
+  private processDiamondShape(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\{([^}]+)\}/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: diam, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process circle shape ((text))
+  private processCircleShape(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\(\(([^)]+)\)\)/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: circle, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process asymmetric shape >text]
+  private processAsymmetricShape(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)>([^\]]+)\]/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: odd, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+    // Process hexagon shape {{text}}
+  private processHexagonShape(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\{\{([^}]+)\}\}/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: hex, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process parallelogram-right [/text/]
+  private processParallelogramRight(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\[\/([^\/]+)\/\]/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: lean-r, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process parallelogram-left [\text\]
+  private processParallelogramLeft(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\[\\([^\\]+)\\\]/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: lean-l, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process trapezoid [/text\]
+  private processTrapezoid(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\[\/([^\\]+)\\\]/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: trap-t, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process trapezoid alt [\text/]
+  private processTrapezoidAlt(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\[\\([^/]+)\/\]/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: trap-b, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process double circle (((text)))
+  private processDoubleCircle(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\(\(\(([^)]+)\)\)\)/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: doublecircle, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process subroutine [[text]]
+  private processSubroutineShape(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\[\[([^\]]+)\]\]/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: subroutine, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process cylinder [(text)]
+  private processCylinderShape(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\[\(([^)]+)\)\]/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: cyl, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process stadium ([text])
+  private processStadiumShape(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\(\[([^\]]+)\]\)/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: stadium, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Process rounded shape (text)
+  private processRoundedShape(line: string, nodeDefinitions: Map<string, string>): string {
+    return line.replace(/(\w+)\(([^)]+)\)/g, (match, nodeId, label) => {
+      const cleanLabel = label.trim();
+      nodeDefinitions.set(nodeId, `@{ shape: rounded, label: "${cleanLabel}" }`);
+      return `${nodeId}_MARKER_`;
+    });
+  }
+
+  // Replace markers with actual conversions
+  private replaceMarkersWithConversions(line: string, nodeDefinitions: Map<string, string>): string {
+    let result = line;
+    nodeDefinitions.forEach((conversion, nodeId) => {
+      result = result.replace(new RegExp(`${nodeId}_MARKER_`, 'g'), `${nodeId}${conversion}`);
+    });
+    return result;
+  }
+
+  // Process node definitions (existing methods remain the same)
+  private processNodeDefinitions(line: string): string {
+    const nodeDefinitions: Map<string, string> = new Map();
+    
+    // Process different shape types - ORDER MATTERS!
+    // More specific patterns must come before general patterns
+    let processedLine = line;
+    
+    // Process double/triple patterns first
+    processedLine = this.processDoubleCircle(processedLine, nodeDefinitions);
+    processedLine = this.processSubroutineShape(processedLine, nodeDefinitions);
+    processedLine = this.processHexagonShape(processedLine, nodeDefinitions);
+    
+    // Process special bracket patterns
+    processedLine = this.processParallelogramRight(processedLine, nodeDefinitions);
+    processedLine = this.processParallelogramLeft(processedLine, nodeDefinitions);
+    processedLine = this.processTrapezoid(processedLine, nodeDefinitions);
+    processedLine = this.processTrapezoidAlt(processedLine, nodeDefinitions);
+    processedLine = this.processCylinderShape(processedLine, nodeDefinitions);
+    processedLine = this.processStadiumShape(processedLine, nodeDefinitions);
+    
+    // Process single patterns last
+    processedLine = this.processCircleShape(processedLine, nodeDefinitions);
+    processedLine = this.processRectangleShape(processedLine, nodeDefinitions);
+    processedLine = this.processDiamondShape(processedLine, nodeDefinitions);
+    processedLine = this.processAsymmetricShape(processedLine, nodeDefinitions);
+    processedLine = this.processRoundedShape(processedLine, nodeDefinitions);
+    
+    // Replace all markers with actual conversions
+    return this.replaceMarkersWithConversions(processedLine, nodeDefinitions);
   }
 }
 
@@ -636,38 +718,20 @@ export const checkLabelBracketBalance = (label: string): boolean => {
 };
 
 // Preprocessing function using the MermaidConverter with fallback
+
 export const preprocessChart = (chart: string): string => {
   console.log("✅Original Mermaid diagram:", chart);
   try {
-    // First handle escaped characters
+    // 1. Handle escaped characters (common for all diagram types)
     let processedChart = chart;
     if (chart.includes('\\[') || chart.includes('\\]') || chart.includes('\\{') || chart.includes('\\}')) {
       processedChart = handleEscapedCharacters(chart);
     }
     
-    // Then convert to new @{} syntax for better handling of special characters
+    // 2. Convert to new syntax based on diagram type
+    // The converter handles type detection internally and applies validation where needed
     const convertedChart = mermaidConverter.toNewSyntax(processedChart);
     
-    // Validate the conversion - check for basic syntax errors
-    if (convertedChart.includes('@{ shape:')) {
-      // Check for unclosed quotes or brackets in labels
-      // Updated regex to handle escaped quotes within labels
-      const labelMatches = convertedChart.match(/label: "((?:[^"\\]|\\.)*)"/g);
-      if (labelMatches) {
-        for (const match of labelMatches) {
-          const label = match.substring(8, match.length - 1); // Extract label content
-          // Skip validation for already escaped labels (containing @{ shape:)
-          if (label.includes('@{ shape:')) {
-            continue;
-          }
-          // Use context-aware bracket balance check
-          if (!checkLabelBracketBalance(label)) {
-            console.warn("⚠️ Unbalanced brackets in label, using escaped version:", label);
-            return processedChart;
-          }
-        }
-      }
-    }
     console.log("🔄Converted Mermaid diagram:", convertedChart);
     return convertedChart;
   } catch (error) {

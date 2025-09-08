@@ -91,22 +91,30 @@ Based ONLY on the content of the \`[RELEVANT_SOURCE_FILES]\`:
          - Rectangle: \`nodeId["Node Label"]\`
          - Rounded: \`nodeId("Node Label")\`
          - Diamond: \`nodeId{"Node Label"}\`
-       - CRITICAL: Link labels MUST use quotes in these cases:
-         - Non-ASCII characters: \`A --> B: "한글 라벨"\`, \`A --> B: "español"\`
-         - Spaces: \`A --> B: "Multi word label"\`
-         - Special characters: \`A --> B: "Label: with colon"\`, \`A --> B: "Label (parentheses)"\`
-         - Numbers at start: \`A --> B: "123 start with number"\`
-         - Reserved words: \`A --> B: "end"\`, \`A --> B: "class"\`
-         - Punctuation: \`A --> B: "Hello, World!"\`, \`A --> B: "Label-with-dash"\`
-         - Conditional labels: \`A -->|"Yes/No"| B\`, \`A -->|"성공"| B\`
-       - Example:
+       - CRITICAL Edge Label Rules:
+         - ALWAYS use pipe syntax for edge labels: \`A -->|"Label"| B\`
+         - NEVER pre-escape quotes in pipe labels: Use |"Label"| NOT |\\"Label\\"|
+         - For simple ASCII labels without special chars: \`A -->|Label| B\` (no quotes needed)
+         - For labels with special characters or non-ASCII: \`A -->|"한글 라벨"| B\`
+         - NEVER use colon syntax: \`A --> B: "Label"\` ❌ (causes parsing errors)
+         - Examples:
+           * \`A -->|"데이터 조회"| B\` ✅
+           * \`A -->|GET| B\` ✅ (simple ASCII, no quotes needed)
+           * \`A -->|"POST/PUT/DELETE"| B\` ✅ (slashes need quotes)
+           * \`A --> B: "데이터"\` ❌ (never use colon syntax)
+       - Example (CORRECT):
          \`\`\`
          flowchart TD
            A@{ shape: rect, label: "User Login" } --> B@{ shape: diam, label: "Valid?" }
            B -->|"Yes"| C@{ shape: rounded, label: "Dashboard" }
            B -->|"No"| D@{ shape: rect, label: "Error Page" }
-           A --> B: "사용자 입력"
-           C --> A: "Log out"
+           A -->|"사용자 입력"| B
+           C -->|"Log out"| A
+         \`\`\`
+       - Example (WRONG - DO NOT USE):
+         \`\`\`
+         A --> B: "Label"  ❌ (colon syntax not allowed)
+         A -->|\\"Label\\"| B  ❌ (don't pre-escape quotes)
          \`\`\`
        
        **For Sequence Diagrams:**
