@@ -273,7 +273,7 @@ export default function RepoWikiPage() {
   const [isAuthLoading, setIsAuthLoading] = useState<boolean>(true);
 
   // Default branch state
-  const [defaultBranch, setDefaultBranch] = useState<string>('main');
+  const defaultBranch = useRef<string>('main');
 
   // Helper function to generate proper repository file URLs
   const generateFileUrl = useCallback((filePath: string): string => {
@@ -293,13 +293,13 @@ export default function RepoWikiPage() {
       
       if (hostname === 'github.com' || hostname.includes('github')) {
         // GitHub URL format: https://github.com/owner/repo/blob/branch/path
-        return `${repoUrl}/blob/${defaultBranch}/${filePath}`;
+        return `${repoUrl}/blob/${defaultBranch.current}/${filePath}`;
       } else if (hostname === 'gitlab.com' || hostname.includes('gitlab')) {
         // GitLab URL format: https://gitlab.com/owner/repo/-/blob/branch/path
-        return `${repoUrl}/-/blob/${defaultBranch}/${filePath}`;
+        return `${repoUrl}/-/blob/${defaultBranch.current}/${filePath}`;
       } else if (hostname === 'bitbucket.org' || hostname.includes('bitbucket')) {
         // Bitbucket URL format: https://bitbucket.org/owner/repo/src/branch/path
-        return `${repoUrl}/src/${defaultBranch}/${filePath}`;
+        return `${repoUrl}/src/${defaultBranch.current}/${filePath}`;
       }
     } catch (error) {
       console.warn('Error generating file URL:', error);
@@ -307,7 +307,7 @@ export default function RepoWikiPage() {
 
     // Fallback to just the file path
     return filePath;
-  }, [effectiveRepoInfo, defaultBranch]);
+  }, [effectiveRepoInfo, defaultBranch.current]);
 
   // Memoize repo info to avoid triggering updates in callbacks
 
@@ -1088,7 +1088,7 @@ IMPORTANT:
           fileTreeData = data.file_tree;
           readmeContent = data.readme;
           // For local repos, we can't determine the actual branch, so use 'main' as default
-          setDefaultBranch('main');
+          defaultBranch.current = 'main';
         } catch (err) {
           throw err;
         }
@@ -1134,7 +1134,7 @@ IMPORTANT:
             defaultBranchLocal = repoData.default_branch;
             console.log(`Found default branch: ${defaultBranchLocal}`);
             // Store the default branch in state
-            setDefaultBranch(defaultBranchLocal || 'main');
+            defaultBranch.current = defaultBranchLocal || 'main';
           }
         } catch (err) {
           console.warn('Could not fetch repository info for default branch:', err);
@@ -1233,7 +1233,7 @@ IMPORTANT:
           defaultBranchLocal = projectInfo.default_branch || 'main';
           console.log(`Found GitLab default branch: ${defaultBranchLocal}`);
           // Store the default branch in state
-          setDefaultBranch(defaultBranchLocal);
+          defaultBranch.current = defaultBranchLocal;
 
           // Step 2: Paginate to fetch full file tree
           let page = 1;
@@ -1306,7 +1306,7 @@ IMPORTANT:
             const projectData = JSON.parse(responseText);
             defaultBranchLocal = projectData.mainbranch.name;
             // Store the default branch in state
-            setDefaultBranch(defaultBranchLocal);
+            defaultBranch.current = defaultBranchLocal;
 
             const apiUrl = `https://api.bitbucket.org/2.0/repositories/${encodedRepoPath}/src/${defaultBranchLocal}/?recursive=true&per_page=100`;
             try {
