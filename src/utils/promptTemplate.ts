@@ -124,14 +124,16 @@ Based ONLY on the content of the \`[RELEVANT_SOURCE_FILES]\`:
          - \`->>\` for request/call messages
          - \`-->>\` for response messages
          - \`-x\` for failed messages
-       - Include activation boxes using \`+\`/\`-\` notation
+       - Use explicit \`activate\` and \`deactivate\` commands for activation boxes (NOT +/- notation)
        - Example:
          \`\`\`
          sequenceDiagram
            participant User as 사용자
            participant API as API 서버
-           User->>+API: 로그인 요청
-           API-->>-User: 토큰 반환
+           User->>API: 로그인 요청
+           activate API
+           API-->>User: 토큰 반환
+           deactivate API
          \`\`\`
        
        **For Class Diagrams:**

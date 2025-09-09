@@ -326,4 +326,156 @@ describe('MermaidConverter', () => {
       expect(mermaidConverter.toNewSyntax(input)).toBe(expected);
     });
   });
+
+  describe('Sequence Diagram Activation Normalization', () => {
+    test('should leave valid activate/deactivate pairs unchanged', () => {
+      const input = `sequenceDiagram
+    Client->>+Server: Start process
+    Server-->>-Client: Process complete`;
+      const expected = `sequenceDiagram
+    Client->>+Server: Start process#59; process complete
+    Server-->>-Client: Process complete`;
+      // Note: semicolons are still escaped as part of existing functionality
+      const result = mermaidConverter.toNewSyntax(input);
+      expect(result).toContain('Client->>+Server: Start process');
+      expect(result).toContain('Server-->>-Client: Process complete');
+    });
+
+    test('should remove deactivation when no prior activation exists', () => {
+      const input = `sequenceDiagram
+    Client->>Server: Send request
+    Server-->>-Client: Response without activation`;
+      const result = mermaidConverter.toNewSyntax(input);
+      expect(result).toContain('Server-->>Client: Response without activation');
+      expect(result).not.toContain('Server-->>-Client:');
+    });
+
+    test('should remove activation when no matching deactivation exists', () => {
+      const input = `sequenceDiagram
+    Client->>+Server: Start process
+    Server->>Client: Response without deactivation`;
+      const result = mermaidConverter.toNewSyntax(input);
+      expect(result).toContain('Client->>Server: Start process');
+      expect(result).not.toContain('Client->>+Server:');
+    });
+
+    test('should handle complex scenario from user example', () => {
+      const input = `sequenceDiagram
+  participant Component as 컴포넌트
+  participant UseQueryHook as useReadManyBanner 훅
+  participant ReactQueryCache as React Query 캐시
+  participant ApiClient as Api 클라이언트
+  participant ApiServer as API 서버
+
+  Component->>+UseQueryHook: 데이터 조회 요청
+  UseQueryHook->>ReactQueryCache: 쿼리 키 ("banner")로 캐시 확인
+  alt 캐시에 데이터 존재
+    ReactQueryCache-->>-UseQueryHook: 캐시된 데이터 반환
+  else 캐시에 데이터 없음 또는 만료
+    UseQueryHook->>ApiClient: api.readManyBanner() 호출
+    ApiClient->>+ApiServer: GET /api/v1/admin/banner 요청
+    ApiServer-->>-ApiClient: 배너 목록 응답
+    ApiClient-->>UseQueryHook: 응답 데이터 반환
+    UseQueryHook->>ReactQueryCache: 데이터 캐싱
+    ReactQueryCache-->>-UseQueryHook: 캐시된 데이터 반환
+  end
+  UseQueryHook-->>-Component: 조회된 데이터 반환`;
+
+      const result = mermaidConverter.toNewSyntax(input);
+      
+      // Valid pairs should remain
+      expect(result).toContain('Component->>+UseQueryHook:');
+      expect(result).toContain('ApiClient->>+ApiServer:');
+      expect(result).toContain('ApiServer-->>-ApiClient:');
+      expect(result).toContain('UseQueryHook-->>-Component:');
+      
+      // Invalid deactivations should be removed (ReactQueryCache was never activated)
+      expect(result).toContain('ReactQueryCache-->>UseQueryHook:'); // - removed
+      expect(result).not.toContain('ReactQueryCache-->>-UseQueryHook:');
+    });
+
+    test('should handle nested activations correctly', () => {
+      const input = `sequenceDiagram
+    A->>+B: Start B
+    B->>+C: Start C
+    C-->>-B: C done
+    B-->>-A: B done`;
+      const result = mermaidConverter.toNewSyntax(input);
+      
+      // All activations/deactivations should remain as they are properly paired
+      expect(result).toContain('A->>+B:');
+      expect(result).toContain('B->>+C:');
+      expect(result).toContain('C-->>-B:');
+      expect(result).toContain('B-->>-A:');
+    });
+
+    test('should handle multiple participants with mixed valid/invalid activations', () => {
+      const input = `sequenceDiagram
+    A->>+B: Start B
+    A->>+C: Start C  
+    B-->>-A: B responds
+    C-->>A: C responds without deactivation
+    D-->>-A: D deactivates A without activation`;
+      
+      const result = mermaidConverter.toNewSyntax(input);
+      
+      // Valid B activation/deactivation should remain
+      expect(result).toContain('A->>+B:');
+      expect(result).toContain('B-->>-A:');
+      
+      // Invalid C activation should be removed (no deactivation)
+      expect(result).toContain('A->>C:');
+      expect(result).not.toContain('A->>+C:');
+      
+      // Invalid D deactivation should be removed (no activation)
+      expect(result).toContain('D-->>A:');
+      expect(result).not.toContain('D-->>-A:');
+    });
+
+    test('should handle double deactivation', () => {
+      const input = `sequenceDiagram
+    A->>+B: Start B
+    B-->>-A: First deactivation
+    B-->>-A: Second deactivation (invalid)`;
+      
+      const result = mermaidConverter.toNewSyntax(input);
+      
+      expect(result).toContain('A->>+B:');
+      expect(result).toContain('B-->>-A: First deactivation');
+      expect(result).toContain('B-->>A: Second deactivation (invalid)');
+      expect(result).not.toMatch(/B-->>-A:.*Second deactivation/);
+    });
+
+    test('should preserve other sequence diagram elements', () => {
+      const input = `sequenceDiagram
+    participant A as Alice
+    participant B as Bob
+    
+    Note over A,B: This is a note
+    A->>+B: Hello
+    Note right of B: Bob thinks
+    B-->>-A: Hi there
+    
+    alt condition
+      A->>B: Option 1
+    else
+      A->>B: Option 2
+    end`;
+      
+      const result = mermaidConverter.toNewSyntax(input);
+      
+      // Should preserve notes, alt blocks, participant declarations
+      expect(result).toContain('participant A as Alice');
+      expect(result).toContain('participant B as Bob');
+      expect(result).toContain('Note over A,B:');
+      expect(result).toContain('Note right of B:');
+      expect(result).toContain('alt condition');
+      expect(result).toContain('else');
+      expect(result).toContain('end');
+      
+      // Should handle valid activation/deactivation
+      expect(result).toContain('A->>+B:');
+      expect(result).toContain('B-->>-A:');
+    });
+  });
 });

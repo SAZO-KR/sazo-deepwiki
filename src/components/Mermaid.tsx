@@ -322,12 +322,69 @@ class MermaidConverter {
     return 'unknown';
   }
 
+  // Normalize sequence diagram activations to ensure proper pairing
+  private normalizeSequenceActivations(lines: string[]): string[] {
+    const result: string[] = [...lines];
+    const activationStacks = new Map<string, number[]>();
+    
+    // 정규식 패턴 - activate/deactivate 감지
+    const activatePattern = /^(\s*)([\w\s]+?)\s*(--?>>|\->>)\+\s*([\w\s]+?)\s*:\s*(.+)$/;
+    const deactivatePattern = /^(\s*)([\w\s]+?)\s*(--?>>|\->>)\-\s*([\w\s]+?)\s*:\s*(.+)$/;
+    
+    // 첫 번째 패스: activation/deactivation 처리
+    for (let i = 0; i < result.length; i++) {
+      const line = result[i];
+      
+      // activation 확인
+      const activateMatch = line.match(activatePattern);
+      if (activateMatch) {
+        const target = activateMatch[4].trim();
+        if (!activationStacks.has(target)) {
+          activationStacks.set(target, []);
+        }
+        activationStacks.get(target)!.push(i);
+        continue;
+      }
+      
+      // deactivation 확인
+      const deactivateMatch = line.match(deactivatePattern);
+      if (deactivateMatch) {
+        const from = deactivateMatch[2].trim(); // deactivation에서는 from이 deactivate됨
+        if (activationStacks.has(from) && activationStacks.get(from)!.length > 0) {
+          // 올바른 쌍 - 스택에서 제거
+          activationStacks.get(from)!.pop();
+        } else {
+          // 잘못된 deactivation - '-' 기호 제거
+          const [, indent, fromPart, arrow, to, message] = deactivateMatch;
+          result[i] = `${indent}${fromPart}${arrow}${to}: ${message}`;
+        }
+        continue;
+      }
+    }
+    
+    // 두 번째 패스: 쌍이 없는 activation들 제거
+    activationStacks.forEach((stack) => {
+      stack.forEach(lineIndex => {
+        const line = result[lineIndex];
+        const match = line.match(activatePattern);
+        if (match) {
+          const [, indent, from, arrow, to, message] = match;
+          result[lineIndex] = `${indent}${from}${arrow}${to}: ${message}`;
+        }
+      });
+    });
+    
+    return result;
+  }
+
   // Process sequence diagram according to official Mermaid syntax
   private processSequenceDiagram(lines: string[]): string[] {
-    const result: string[] = [];
+    // 먼저 activation/deactivation 정규화
+    const normalizedLines = this.normalizeSequenceActivations(lines);
     
-    for (const line of lines) {
-      // Process message lines
+    // 그 다음 기존 처리 (세미콜론 이스케이프)
+    const result: string[] = [];
+    for (const line of normalizedLines) {
       const messagePattern = /^(\s*)([\w\s]+)(->>\+?|-->>\-?|->>|-->>|-x|->|-->)([\w\s]+):\s*(.+)$/;
       const match = line.match(messagePattern);
       
